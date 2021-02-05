@@ -16,8 +16,8 @@ log_dir = cfg["PATHS"]["log_dir"]
 img_dir = cfg["PATHS"]["image_dir"]
 graph_dir = cfg["PATHS"]["pnl_graph_dir"]
 
-REPLACE = list(dict(cfg["REPLACE"]).items())
-aliases = dict(cfg["ALIASES"])
+REPLACE = list(cfg._sections["REPLACE"].items())
+aliases = cfg._sections["ALIASES"]
 
 game_logs = []
 for fname in os.listdir(log_dir):
@@ -35,7 +35,7 @@ game["at"] = pd.to_datetime(game["at"])
 game = game[~game.entry.str.contains("WARNING")]
 game.entry = game.entry.str.replace('"', "")
 for source, target in REPLACE:
-    game.entry = game.entry.str.replace(source, target)
+    game.entry = game.entry.str.lower().str.replace(source, target)
 game["hand_id"] = None
 is_starting_hand = game.entry.str.startswith("-- starting")
 starting_hands = game.loc[is_starting_hand, "entry"]
@@ -44,9 +44,9 @@ game.loc[is_starting_hand, "hand_id"] = i
 game.hand_id = game.hand_id.ffill()
 game["street"] = None
 is_pre = game.entry.str.startswith("-- starting hand")
-is_flop = game.entry.str.startswith("Flop")
-is_turn = game.entry.str.startswith("Turn")
-is_river = game.entry.str.startswith("River")
+is_flop = game.entry.str.startswith("flop")
+is_turn = game.entry.str.startswith("turn")
+is_river = game.entry.str.startswith("river")
 is_ending = game.entry.str.startswith("-- ending hand")
 game.loc[is_pre, "street"] = "pre"
 game.loc[is_flop, "street"] = "flop" 
@@ -73,7 +73,7 @@ game.loc[has_player_info, "player_id"] = parsed_entry[1].str.split(expand=True)[
 result = game
 result["folded"] = result.entry.str.endswith("folds")
 result["showdown"] = result.entry.str.contains("collected") & result.entry.str.contains("with")
-result["uncalled"] = result.entry.str.contains("Uncalled")
+result["uncalled"] = result.entry.str.contains("uncalled")
 result["betting"] = 0 
 is_bet = result.entry.str.contains(r"bets|posts|raises|calls")
 is_payoff = result.entry.str.contains(r"collected")
@@ -91,15 +91,12 @@ result.loc[missed_sb, "street"] = "missed_bb"
 result.bet.update(result.loc[result.street == "result"].groupby(["session", "hand_id", "player"]).bet.cumsum())
 result = result.merge(result.groupby(["session", "hand_id"]).showdown.any().reset_index(), on=["session", "hand_id"], suffixes=["_raw", ""])
 
-
-aliases = dict(zip(result.player.dropna().str.lower().unique(), result.player.dropna().str.lower().unique()))
-aliases["mico"] = "michael"
-aliases["h"] = "matthew"
-aliases["jarryx"] = "jarry"
-aliases
+aliases_map = dict(zip(result.player.dropna().str.lower().unique(), result.player.dropna().str.lower().unique()))
+aliases_map.update(aliases)
+print(aliases_map)
 
 
-result["player"] = result["player"].map(aliases)
+result["player"] = result["player"].map(aliases_map)
 result["date"] = result["at"].dt.strftime("%Y-%m-%d")
 pots = (
     result
@@ -137,25 +134,21 @@ def debug(bug_index):
         pass
 
 
-
-remap = dict(result[["session", "date"]].dropna().drop_duplicates(["date"]).values)
-result["date"] = result["session"].map(remap)
-
 print("All sessions/dates recorded")
-display(result[["date", "session"]].drop_duplicates().dropna())
+display(result[["date", "session"]].drop_duplicates())
 print()
 
 hands = result.query("bet == bet and bet != 0 and hand_id == hand_id and street != ''")
 betting_action = hands.drop_duplicates(["player", "session", "hand_id", "street"], keep="last").round(2)
 profits = betting_action.groupby(["session", "hand_id", "player"], as_index=False).agg({"bet": "sum", "at": "last"}).sort_values("at")
-pd.pivot_table(profits, index=["session", "hand_id"], columns="player").bet.cumsum().ffill().plot(figsize=(20, 10))
+pd.pivot_table(profits, index=["session", "hand_id"], columns="player").bet.fillna(0).cumsum().plot(figsize=(20, 10))
 plt.xticks([])
 plt.title("Total PnL")
 plt.savefig(os.path.join(img_dir, "total_pnl.png"))
 
-
-profits = betting_action.groupby(["session", "date", "player"], as_index=False).agg({"bet": "sum", "at": "last"}).sort_values("at")
-profits = pd.pivot_table(profits, index=["date"], columns="player").bet.fillna(0)
+betting_action["session_date"] = betting_action.session.map(dict(betting_action[["session", "date"]].drop_duplicates("session").values))
+profits = betting_action.groupby(["session_date", "player"], as_index=False).agg({"bet": "sum", "at": "last"}).sort_values("at")
+profits = pd.pivot_table(profits, index=["session_date"], columns="player").bet.fillna(0)
 print("Profit by session (note dates are based on UTC)")
 display(profits)
 print()
@@ -165,7 +158,7 @@ display(profits.cumsum())
 hands = result.query("bet == bet and bet != 0 and hand_id == hand_id and street != '' and showdown")
 betting_action = hands.drop_duplicates(["player", "session", "hand_id", "street"], keep="last").round(2)
 profits = betting_action.groupby(["session", "hand_id", "player"], as_index=False).agg({"bet": "sum", "at": "last"}).sort_values("at")
-pd.pivot_table(profits, index=["at"], columns="player").bet.cumsum().ffill().reset_index().drop("at", axis=1).plot(figsize=(20, 10))
+pd.pivot_table(profits, index=["at"], columns="player").bet.fillna(0).cumsum().reset_index().drop("at", axis=1).plot(figsize=(20, 10))
 plt.xticks([])
 plt.title("Showdown PnL")
 plt.savefig(os.path.join(img_dir, "showdown_pnl.png"))
@@ -173,7 +166,7 @@ plt.savefig(os.path.join(img_dir, "showdown_pnl.png"))
 hands = result.query("bet == bet and bet != 0 and hand_id == hand_id and street != '' and not showdown")
 betting_action = hands.drop_duplicates(["player", "session", "hand_id", "street"], keep="last").round(2)
 profits = betting_action.groupby(["session", "hand_id", "player"], as_index=False).agg({"bet": "sum", "at": "last"}).sort_values("at")
-pd.pivot_table(profits, index=["at"], columns="player").bet.cumsum().ffill().reset_index().drop("at", axis=1).plot(figsize=(20, 10))
+pd.pivot_table(profits, index=["at"], columns="player").bet.fillna(0).cumsum().reset_index().drop("at", axis=1).plot(figsize=(20, 10))
 plt.xticks([])
 plt.title("Non-Showdown PnL")
 plt.savefig(os.path.join(img_dir, "non_showdown_pnl.png"))
@@ -181,19 +174,19 @@ plt.savefig(os.path.join(img_dir, "non_showdown_pnl.png"))
 for player in result.player.dropna().unique():
     hands = result.query("bet == bet and bet != 0 and hand_id == hand_id and street != ''")
     betting_action = hands.drop_duplicates(["player", "session", "hand_id", "street"], keep="last").round(2)
-    profits = betting_action.groupby(["session", "hand_id", "player"], as_index=False).agg({"bet": "sum", "at": "last", "showdown": "last"}).sort_values("at")
-    showdown = pd.pivot_table(profits, index="at", columns="player").showdown[player].astype(float).dropna()
-    total = pd.pivot_table(profits, index="at", columns="player").bet[player].dropna()
+    profits = betting_action.groupby(["session", "hand_id", "player"], as_index=False).agg({"bet": "sum", "at": "last", "showdown": "last"})
+    showdown = pd.pivot_table(profits, index="at", columns="player").showdown[player].astype(float).dropna().sort_index()
+    total = pd.pivot_table(profits, index="at", columns="player").bet[player].dropna().sort_index()
     sd = total.copy()
     nsd = total.copy()
     sd.loc[showdown == 0] = None
     sd = sd.reset_index()
-    sd[player] = sd[player].cumsum().ffill().fillna(0)
+    sd[player] = sd[player].fillna(0).cumsum()
     nsd.loc[showdown == 1] = None
     nsd = nsd.reset_index()
-    nsd[player] = nsd[player].cumsum().ffill().fillna(0)
+    nsd[player] = nsd[player].fillna(0).cumsum()
     total = total.reset_index()
-    total[player] = total[player].cumsum().ffill().fillna(0)
+    total[player] = total[player].fillna(0).cumsum()
     a = total.plot(y=player, color="g", figsize=(20, 10), label="Profit")
     sd.plot(y=player, color="b", ax=a, label="Showdown")
     nsd.plot(y=player, color="r", ax=a, label="Non-Showdown")
@@ -218,7 +211,7 @@ def print_preflop_ratios():
     for p, pg in pre.groupby("player"):
         pg = pg[
             ~pg.entry.str.contains("collect") 
-            & ~pg.entry.str.contains("Uncalled")
+            & ~pg.entry.str.contains("uncalled")
             & ~pg.entry.str.contains("blinds")
         ]
         last_action = pg.groupby(["session", "hand_id"]).last()
@@ -232,3 +225,4 @@ def print_preflop_ratios():
     stat_df = pd.DataFrame(stats)
     stat_df["PFR/VPIP"] = stat_df.eval("PFR / VPIP")
     display(stat_df.round(2))
+
