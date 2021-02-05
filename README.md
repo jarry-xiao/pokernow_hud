@@ -1,6 +1,6 @@
 # PokerNow HUD
 
-Parser and analyzer for logs from [pokernow.club](pokernow.club)
+Parser and analyzer for logs from [pokernow.club](https://www.pokernow.club)
 
 Check out the Jupyter Notebook for adhoc customizable analysis/dirty data science code.
 
