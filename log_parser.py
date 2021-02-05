@@ -33,6 +33,7 @@ game = pd.concat(game_logs)
 game = game.sort_values(["at", "order"]).reset_index(drop=True)
 game["at"] = pd.to_datetime(game["at"])
 game = game[~game.entry.str.contains("WARNING")]
+game.entry = game.entry.str.lower()
 game.entry = game.entry.str.replace('"', "")
 for source, target in REPLACE:
     game.entry = game.entry.str.lower().str.replace(source, target)
