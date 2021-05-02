@@ -1,4 +1,5 @@
 import os
+import configparser
 import argparse
 import json
 import datetime
@@ -36,6 +37,13 @@ psr = argparse.ArgumentParser()
 psr.add_argument("start", nargs='?', default=None)
 psr.add_argument("end", nargs='?', default=None)
 
+cfg = configparser.ConfigParser()
+cfg.read("ledger.ini")
+API_KEY = cfg["KEYS"]["API_KEY"]
+SPREADSHEET_ID = cfg["KEYS"]["SPREADSHEET_ID"]
+print(API_KEY)
+print(SPREADSHEET_ID)
+
 args = psr.parse_args()
 
 today = datetime.date.today()
@@ -46,8 +54,6 @@ nxt = today
 start = args.start if args.start is not None else str(last)
 end = args.end if args.end is not None else str(nxt)
 
-API_KEY = "AIzaSyBV5mclhpS8zjLDkuniZDbh5LWx-GufQWo"
-SPREADSHEET_ID = "14yOddVZJrrxf8RogZO9tjwoei7mkVCzTaYlYfrIooyc"
 
 service = build('sheets', 'v4', developerKey=API_KEY)
 sheet_api = service.spreadsheets()
