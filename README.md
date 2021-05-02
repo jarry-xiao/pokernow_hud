@@ -6,6 +6,10 @@ Check out the Jupyter Notebook for adhoc customizable analysis/dirty data scienc
 
 You will need to download all your own logs from pokernow.club after you've finished a session and dump that log into a single directory. Modify the config.ini file to standardize the logs (which are really really hard to systematically parse)
 
+## Getting session results
+
+Run `python log_parser.py YYYY-MM-DD` to get the results from all games after a certain date. Lists are comma-separated
+
 ## Config Schema
 
 #### PATHS
