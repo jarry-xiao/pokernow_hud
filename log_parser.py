@@ -4,7 +4,7 @@ from IPython.display import display
 import matplotlib.pyplot as plt
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 100)
-pd.options.mode.chained_assignment = None 
+pd.options.mode.chained_assignment = None
 pd.options.display.width = 0
 import os
 import datetime
@@ -38,15 +38,18 @@ for fname in os.listdir(log_dir):
     df = pd.read_csv(path)
     df["session"] = fname.split(".")[0].split("_")[-1]
     game_logs.append(df)
-    
+
 game = pd.concat(game_logs)
-game = game.sort_values(["at", "order"]).reset_index(drop=True)
+game = game.sort_values(["session", "at", "order"]).reset_index(drop=True)
 game["at"] = pd.to_datetime(game["at"]).dt.tz_convert(pytz.timezone("US/Central"))
 if args.start_date is not None and t < pd.to_datetime(args.start_date):
     sdate = pd.to_datetime(args.start_date)
     sdate = sdate.replace(tzinfo=pytz.timezone("US/Central"))
-    game = game.query("at > @sdate") 
+    game = game.query("at > @sdate")
 game = game[~game.entry.str.contains("WARNING")]
+game = game[~game.entry.str.contains("approved")]
+game = game[~game.entry.str.contains("joined")]
+game = game[~game.entry.str.contains("sit back")]
 game.entry = game.entry.str.lower()
 game.entry = game.entry.str.replace('"', "")
 for source, target in REPLACE:
@@ -56,6 +59,10 @@ is_starting_hand = game.entry.str.startswith("-- starting")
 starting_hands = game.loc[is_starting_hand, "entry"]
 i = starting_hands.str.split(" ", expand=True)[3].str[1:].astype(int)
 game.loc[is_starting_hand, "hand_id"] = i
+is_ending_hand = game.entry.str.startswith("-- ending")
+ending_hands = game.loc[is_ending_hand, "entry"]
+i = ending_hands.str.split(" ", expand=True)[3].str[1:].astype(int)
+game.loc[is_ending_hand, "hand_id"] = i
 game.hand_id = game.hand_id.ffill()
 game["street"] = None
 is_pre = game.entry.str.startswith("-- starting hand")
@@ -64,10 +71,10 @@ is_turn = game.entry.str.startswith("turn")
 is_river = game.entry.str.startswith("river")
 is_ending = game.entry.str.startswith("-- ending hand")
 game.loc[is_pre, "street"] = "pre"
-game.loc[is_flop, "street"] = "flop" 
-game.loc[is_turn, "street"] = "turn" 
+game.loc[is_flop, "street"] = "flop"
+game.loc[is_turn, "street"] = "turn"
 game.loc[is_river, "street"] = "river"
-game.loc[is_ending, "street"] = "" 
+game.loc[is_ending, "street"] = ""
 game.street = game.street.ffill()
 street_ids = {
     "pre": 0,
@@ -86,10 +93,11 @@ names = parsed_entry[0].str.split(expand=True).ffill(axis=1)
 game.loc[has_player_info, "player"] = names[names.shape[1] - 1].str.lower()
 game.loc[has_player_info, "player_id"] = parsed_entry[1].str.split(expand=True)[0]
 result = game
+raw = result.copy()
 result["folded"] = result.entry.str.endswith("folds")
 result["showdown"] = result.entry.str.contains("collected") & result.entry.str.contains("with")
 result["uncalled"] = result.entry.str.contains("uncalled")
-result["betting"] = 0 
+result["betting"] = 0
 is_bet = result.entry.str.contains(r"bets|posts|raises|calls")
 is_payoff = result.entry.str.contains(r"collected")
 result["all_in"] = result.entry.str.contains("all in")
@@ -113,18 +121,7 @@ aliases_map.update(aliases)
 
 result["player"] = result["player"].map(aliases_map)
 result["date"] = result["at"].dt.strftime("%Y-%m-%d")
-pots = (
-    result
-    .query("bet <= 0")
-    .groupby(["session", "hand_id", "street_id", "player"]).bet.last()
-    .groupby(["session", "hand_id", "street_id"]).sum()
-    .groupby(["session", "hand_id"]).cumsum().bfill().ffill()
-    .rename("pot")
-    .reset_index()
-)
-result = result.merge(pots, how="left", on=["session", "hand_id", "street_id"])
-result["pot"] *= -1
-
+result["player"] = result.player.str.replace(r'\d', '', regex=True)
 
 hands = result.query("bet == bet and bet != 0 and hand_id == hand_id and street != ''")
 betting_action = hands.drop_duplicates(["player", "session", "hand_id", "street"], keep="last").round(2)
@@ -174,7 +171,7 @@ profits = (
     betting_action.groupby(["session", "date", "player"])
     .agg({"bet": "sum"}).reset_index().set_index("session").sort_values("date")
 )
-profits.player = profits.player.str.capitalize()
+profits.player = profits.player.str.lower()
 max_sess = profits.index.unique().tolist()
 print()
 for sess in max_sess:
@@ -242,7 +239,7 @@ def print_preflop_ratios():
     stats = []
     for p, pg in pre.groupby("player"):
         pg = pg[
-            ~pg.entry.str.contains("collect") 
+            ~pg.entry.str.contains("collect")
             & ~pg.entry.str.contains("uncalled")
             & ~pg.entry.str.contains("blinds")
         ]
